@@ -1,212 +1,225 @@
-import DefaultLayout from "@/layouts/default";
+// src/pages/send-elliptic.tsx
 import { useState } from "react";
-// Illustrative import — replace with your real SDK API if different
-// import StealthSDK from "@scopelift/stealth-address-sdk";
+import { computeAddress } from "ethers";
+import { arrayify } from "@ethersproject/bytes";
+import { keccak256 } from "@ethersproject/keccak256";
+import elliptic from "elliptic";
+import BN from "bn.js";
 
-export default function Send() {
-  // form state
-  const [amount, setAmount] = useState(0.1);
-  const [receiver, setReceiver] = useState("");
-  const [privacyLevel, setPrivacyLevel] = useState(1); // 0..3
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
-  const [stealthAddr, setStealthAddr] = useState<string | null>(null);
-  const [txHash, setTxHash] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+/**
+ * Uses elliptic (secp256k1) + ethers for address derivation.
+ * Install: npm i elliptic bn.js ethers @ethersproject/bytes @ethersproject/keccak256
+ */
 
-  const privacyLabels = ["Low", "Medium", "High", "Very High"];
+const EC = elliptic.ec;
+const ec = new EC("secp256k1");
 
-  // const sdk = new StealthSDK({
-  //   apiKey: process.env.NEXT_PUBLIC_STEALTH_KEY ?? undefined,
-  // });
+// curve order n
+const CURVE_N = new BN(
+  "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141",
+  16
+);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setTxHash(null);
-    setStealthAddr(null);
+function strip0x(s: string) {
+  return s.startsWith("0x") ? s.slice(2) : s;
+}
+function norm0x(s: string) {
+  if (!s) throw new Error("empty");
+  return s.startsWith("0x") ? s.toLowerCase() : "0x" + s.toLowerCase();
+}
+function bytesToHex(u8: Uint8Array) {
+  return Array.from(u8).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
 
-    if (!receiver) {
-      setError("Receiver address is required.");
-      return;
-    }
-    if (amount < 0.1) {
-      setError("Minimum amount to send is 0.1 vETH");
-      return;
-    }
+/** Deterministic (insecure) private key from address for demo only */
+function deterministicPrivFromAddress(address: string) {
+  const a = address.trim().toLowerCase();
+  const hex = keccak256(a.startsWith("0x") ? a : "0x" + a); // 0x...
+  let bi = new BN(strip0x(hex), 16).mod(CURVE_N);
+  if (bi.isZero()) bi = bi.add(new BN(1));
+  return "0x" + bi.toString(16).padStart(64, "0");
+}
 
-    setBusy(true);
-    setStatus("⚙️ Preparing transaction (mocked)...");
+/** parse a public key (compressed or uncompressed) into elliptic Point */
+function parsePubkeyHex(pubHex: string) {
+  const h = strip0x(pubHex);
+  // elliptic accepts hex with prefix or without; use ec.keyFromPublic
+  try {
+    const key = ec.keyFromPublic(h, "hex");
+    return key.getPublic();
+  } catch (e) {
+    throw new Error("Invalid public key hex format");
+  }
+}
 
+/** derive spend & view public points from main public key */
+function deriveSpendViewFromMainPub(mainPubHex: string) {
+  const mainPub = parsePubkeyHex(mainPubHex);
+
+  // H("spend" || mainPub) and H("view" || mainPub)
+  const enc = new TextEncoder();
+  const mainBytes = arrayify(norm0x(mainPubHex));
+  const spendHash = keccak256(concatBytes([enc.encode("spend"), mainBytes])); // 0x...
+  const viewHash = keccak256(concatBytes([enc.encode("view"), mainBytes]));
+
+  const dSpend = new BN(strip0x(spendHash), 16).mod(CURVE_N);
+  const dView = new BN(strip0x(viewHash), 16).mod(CURVE_N);
+  if (dSpend.isZero() || dView.isZero()) throw new Error("derived zero scalar (very unlikely)");
+
+  const derivedSpendPoint = ec.g.mul(dSpend);
+  const derivedViewPoint = ec.g.mul(dView);
+
+  const spendPoint = mainPub.add(derivedSpendPoint);
+  const viewPoint = mainPub.add(derivedViewPoint);
+
+  return {
+    spendPubUncompressedHex: "0x04" + spendPoint.encode("hex", false).slice(2), // ensure 0x04...
+    spendPubCompressedHex: "0x" + spendPoint.encodeCompressed("hex"),
+    viewPubUncompressedHex: "0x04" + viewPoint.encode("hex", false).slice(2),
+    viewPubCompressedHex: "0x" + viewPoint.encodeCompressed("hex"),
+  };
+}
+
+/** helper concatenate Uint8Array pieces */
+function concatBytes(parts: Uint8Array[]) {
+  const out = new Uint8Array(parts.reduce((s, p) => s + p.length, 0));
+  let off = 0;
+  for (const p of parts) {
+    out.set(p, off);
+    off += p.length;
+  }
+  return out;
+}
+
+/** generate ephemeral keypair */
+function generateEphemeral() {
+  const key = ec.genKeyPair();
+  const privBN = key.getPrivate(); // BN
+  const privHex = privBN.toString(16).padStart(64, "0");
+  const pubCompressed = key.getPublic().encodeCompressed("hex"); // 02/03...
+  return {
+    ephemeralPrivHex: "0x" + privHex,
+    ephemeralPubHex: "0x" + pubCompressed,
+    ephemeralPrivBN: privBN,
+  };
+}
+
+/** ECDH shared: ephemeralPriv * viewPubPoint -> point; then keccak on compressed/uncompressed bytes */
+function computeSharedScalar(ephemeralPrivBN: BN, viewPubPoint: elliptic.ec.Point) {
+  const sharedPoint = viewPubPoint.mul(ephemeralPrivBN); // point
+  // take compressed x/y bytes -> use uncompressed bytes for keccak
+  const rawUncompressedHex = "04" + sharedPoint.encode("hex", false).slice(2);
+  const sharedBytes = arrayify("0x" + rawUncompressedHex);
+  const hash = keccak256(sharedBytes); // 0x...
+  const scalarBN = new BN(strip0x(hash), 16).mod(CURVE_N);
+  if (scalarBN.isZero()) throw new Error("derived scalar == 0");
+  return scalarBN;
+}
+
+/** main generator: derive stealth address */
+function generateStealthFromMainKey(mainPubOrAddress: string, useDeterministicFromAddress = false) {
+  // if input looks like an address and user wants demo, derive demo private & pub
+  let mainPubHex = mainPubOrAddress.trim();
+  const maybeAddr = mainPubHex.startsWith("0x") ? mainPubHex : "0x" + mainPubHex;
+  const isAddress = strip0x(maybeAddr).length === 40;
+  if (isAddress && useDeterministicFromAddress) {
+    // produce demo private from address and derive pub
+    const demoPriv = deterministicPrivFromAddress(maybeAddr);
+    const demoPubPoint = ec.keyFromPrivate(strip0x(demoPriv), "hex").getPublic();
+    mainPubHex = "0x04" + demoPubPoint.encode("hex", false).slice(2);
+  }
+
+  // validate mainPubHex is now a pubkey
+  const mainPoint = parsePubkeyHex(mainPubHex);
+
+  // derive spend/view pubkeys
+  const { spendPubUncompressedHex, viewPubUncompressedHex, spendPubCompressedHex, viewPubCompressedHex } =
+    deriveSpendViewFromMainPub(mainPubHex);
+
+  // ephemeral
+  const ep = generateEphemeral();
+
+  // compute shared scalar: ephemeralPriv * viewPub
+  const viewPoint = parsePubkeyHex(viewPubUncompressedHex);
+  const scalarBN = computeSharedScalar(ep.ephemeralPrivBN, viewPoint);
+
+  // stealth point = spendPoint + scalar * G
+  const spendPoint = parsePubkeyHex(spendPubUncompressedHex);
+  const derivedPoint = ec.g.mul(scalarBN);
+  const stealthPoint = spendPoint.add(derivedPoint);
+
+  const stealthPubUncompHex = "0x04" + stealthPoint.encode("hex", false).slice(2);
+  const stealthPubCompHex = "0x" + stealthPoint.encodeCompressed("hex");
+  const stealthEthAddress = computeAddress(stealthPubUncompHex);
+
+  return {
+    stealthEthAddress,
+    stealthPubUncompHex,
+    stealthPubCompHex,
+    ephemeralPubHex: ep.ephemeralPubHex,
+    ephemeralPrivHex: ep.ephemeralPrivHex,
+    spendPubCompressedHex,
+    viewPubCompressedHex,
+  };
+}
+
+/* ---------------- SIMPLE UI (minimal) ---------------- */
+
+export default function SendEllipticPage() {
+  const [input, setInput] = useState("");
+  const [demoFromAddress, setDemoFromAddress] = useState(true); // if address input, derive demo keypair
+  const [result, setResult] = useState<any | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  function handleGenerate() {
+    setErr(null);
+    setResult(null);
     try {
-      // --- Commented SDK Integration ---
-      // const generated = await sdk.generateStealthAddress({ receiver, entropy: privacyLevel });
-      // if (!generated?.stealthAddress) throw new Error("Stealth SDK didn't return a stealth address.");
-      // setStealthAddr(generated.stealthAddress);
-
-      // const sendResult = await sdk.createStealthPayment({ to: generated.stealthAddress, amount, privacyLevel });
-      // if (sendResult?.txHash) setTxHash(sendResult.txHash);
-
-      // Mocked results for demo
-      setTimeout(() => {
-        setStealthAddr("0xMockedStealthAddress1234567890");
-        setTxHash("0xMockedTransactionHash9876543210");
-        setStatus("✅ Transaction simulated successfully.");
-        setBusy(false);
-      }, 2000);
-    } catch (err: any) {
-      console.error(err);
-      setError(err?.message ?? "Unknown error while creating stealth payment.");
-      setStatus(null);
-      setBusy(false);
+      if (!input) throw new Error("Enter recipient public key or address");
+      const out = generateStealthFromMainKey(input, demoFromAddress);
+      setResult(out);
+    } catch (e: any) {
+      setErr(String(e?.message ?? e));
     }
   }
-
-  function copyStealthAddr() {
-    if (!stealthAddr) return;
-    navigator.clipboard?.writeText(stealthAddr);
-  }
-
-  const sendDisabled = busy || !receiver || amount < 0.1;
 
   return (
-    <DefaultLayout>
-      <section className="flex flex-col items-center justify-center min-h-[80vh] px-4 py-10">
-        <div className="w-full max-w-md">
-          <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-xl p-8 border border-zinc-200 dark:border-zinc-800">
-            <h1 className="text-3xl font-extrabold text-center text-zinc-800 dark:text-zinc-100">
-              🔒 Private Transactions
-            </h1>
-            <p className="mt-3 text-center text-zinc-600 dark:text-zinc-400 text-sm">
-              Protect your payments with stealth addresses and customizable privacy levels.
-            </p>
+    <div style={{ padding: 20, fontFamily: "Inter, Arial" }}>
+      <h3>Stealth (elliptic) — minimal demo</h3>
 
-            <form className="flex flex-col gap-6 mt-8" onSubmit={handleSubmit}>
-              {/* Receiver */}
-              <div>
-                <label
-                  htmlFor="receiver"
-                  className="block text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-2"
-                >
-                  Receiver Address
-                </label>
-                <input
-                  id="receiver"
-                  type="text"
-                  placeholder="0x123...abcd"
-                  value={receiver}
-                  onChange={(e) => setReceiver(e.target.value)}
-                  className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-transparent px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none transition"
-                  required
-                />
-              </div>
+      <div style={{ marginTop: 12 }}>
+        <input
+          placeholder="Recipient pubkey (0x04... or 0x02/0x03...) or address"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          style={{ width: 520, padding: 8 }}
+        />
+      </div>
 
-              {/* vETH Amount */}
-              <div>
-                <label
-                  htmlFor="amount"
-                  className="block text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-2"
-                >
-                  Amount (vETH)
-                </label>
-                <input
-                  id="amount"
-                  type="number"
-                  placeholder="Enter vETH amount"
-                  value={amount}
-                  onChange={(e) => setAmount(Number(e.target.value))}
-                  className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-transparent px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none transition"
-                  min={0.1}
-                  step={0.01}
-                  required
-                />
-                <p className="mt-1 text-xs text-zinc-500">
-                  Minimum: <span className="font-medium">0.1 vETH</span>
-                </p>
-              </div>
+      <div style={{ marginTop: 8 }}>
+        <label style={{ marginRight: 8 }}>
+          <input type="checkbox" checked={demoFromAddress} onChange={(e) => setDemoFromAddress(e.target.checked)} />{" "}
+          If you pasted an address, derive demo keypair (DEMO ONLY)
+        </label>
+      </div>
 
-              {/* Privacy Slider */}
-              <div>
-                <label
-                  htmlFor="privacy"
-                  className="block text-sm font-semibold text-zinc-700 dark:text-zinc-300 mb-2"
-                >
-                  Privacy Level:{" "}
-                  <span className="font-semibold text-blue-600">
-                    {privacyLabels[privacyLevel]}
-                  </span>
-                </label>
-                <input
-                  id="privacy"
-                  type="range"
-                  min={0}
-                  max={3}
-                  step={1}
-                  value={privacyLevel}
-                  onChange={(e) => setPrivacyLevel(Number(e.target.value))}
-                  className="w-full accent-blue-600 cursor-pointer"
-                />
-                <div className="flex justify-between text-xs text-zinc-500 mt-1">
-                  {privacyLabels.map((label, i) => (
-                    <span key={i}>{label}</span>
-                  ))}
-                </div>
-              </div>
+      <div style={{ marginTop: 8 }}>
+        <button onClick={handleGenerate} style={{ padding: "8px 16px" }}>
+          Generate Stealth Address
+        </button>
+      </div>
 
-              {/* Submit */}
-              <button
-                type="submit"
-                disabled={sendDisabled}
-                className={`w-full text-white font-semibold py-3 rounded-lg shadow-md flex items-center justify-center gap-2 transition
-                  ${sendDisabled ? "bg-zinc-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"}`}
-              >
-                {busy ? (
-                  <>
-                    <span className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                    Processing...
-                  </>
-                ) : (
-                  `Send ${amount} vETH with ${privacyLabels[privacyLevel]} Privacy`
-                )}
-              </button>
-            </form>
+      {err && <div style={{ color: "red", marginTop: 12 }}>❌ {err}</div>}
 
-            {/* Status / result pane */}
-            <div className="mt-6 space-y-3">
-              {status && (
-                <div className="px-3 py-2 rounded bg-blue-50 dark:bg-zinc-800 text-blue-700 dark:text-blue-400 text-sm font-medium">
-                  {status}
-                </div>
-              )}
-              {error && (
-                <div className="px-3 py-2 rounded bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 text-sm font-medium">
-                  ❌ {error}
-                </div>
-              )}
-              {stealthAddr && (
-                <div className="p-3 rounded-lg bg-zinc-50 dark:bg-zinc-800">
-                  <div className="text-xs text-zinc-500">Stealth Address</div>
-                  <div className="flex justify-between items-center">
-                    <span className="font-mono text-sm truncate">{stealthAddr}</span>
-                    <button
-                      onClick={copyStealthAddr}
-                      className="ml-2 px-2 py-1 text-xs border rounded bg-white dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-700"
-                    >
-                      Copy
-                    </button>
-                  </div>
-                </div>
-              )}
-              {txHash && (
-                <div className="p-3 rounded-lg bg-zinc-50 dark:bg-zinc-800 text-xs">
-                  <span className="text-zinc-500">Tx Hash:</span>{" "}
-                  <span className="font-mono">{txHash}</span>
-                </div>
-              )}
-            </div>
-          </div>
+      {result && (
+        <div style={{ marginTop: 12, background: "#f6f7f9", padding: 12, borderRadius: 8, maxWidth: 760 }}>
+          <div><strong>Stealth ETH Address:</strong> {result.stealthEthAddress}</div>
+          <div style={{ marginTop: 6 }}><strong>Ephemeral Pub (announce):</strong> {result.ephemeralPubHex}</div>
+          <div style={{ marginTop: 6 }}><strong>Ephemeral Priv (keep secret):</strong> {result.ephemeralPrivHex}</div>
+          <div style={{ marginTop: 6 }}><strong>Derived Spend Pub (compressed):</strong> {result.spendPubCompressedHex}</div>
+          <div style={{ marginTop: 6 }}><strong>Derived View Pub (compressed):</strong> {result.viewPubCompressedHex}</div>
         </div>
-      </section>
-    </DefaultLayout>
+      )}
+    </div>
   );
 }

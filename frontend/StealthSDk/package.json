@@ -10,7 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+<<<<<<< HEAD
     "@heroicons/react": "^2.2.0",
+=======
+    "@aztec/sdk": "^2.1.97",
+>>>>>>> b429437 (added index and send with stealth addresses)
     "@heroui/button": "2.2.26",
     "@heroui/code": "2.2.20",
     "@heroui/dropdown": "2.3.26",
@@ -23,14 +27,19 @@
     "@heroui/system": "2.4.22",
     "@heroui/theme": "2.4.22",
     "@heroui/use-theme": "2.1.10",
+    "@noble/secp256k1": "^3.0.0",
     "@react-aria/visually-hidden": "3.8.27",
     "@react-types/shared": "3.32.0",
-    "@scopelift/stealth-address-sdk": "^1.0.0-beta.2",
+    "@scopelift/stealth-address-sdk": "github:scopelift/stealth-address-sdk",
     "@tailwindcss/postcss": "4.1.11",
     "@tailwindcss/vite": "4.1.11",
     "@tanstack/react-query": "^5.90.2",
     "clsx": "2.1.1",
+<<<<<<< HEAD
     "connectkit": "^1.9.1",
+=======
+    "ethers": "^5.8.0",
+>>>>>>> b429437 (added index and send with stealth addresses)
     "framer-motion": "11.18.2",
     "react": "18.3.1",
     "react-dom": "18.3.1",
@@ -66,5 +75,10 @@
     "typescript": "5.6.3",
     "vite": "6.0.11",
     "vite-tsconfig-paths": "5.1.4"
-  }
+  },
+  "description": "This is a template for creating applications using Vite and HeroUI (v2).",
+  "main": "postcss.config.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
 }
