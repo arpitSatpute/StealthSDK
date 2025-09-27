@@ -37,7 +37,7 @@ contract PoolContract is Ownable, ReentrancyGuard {
     // Deposit function: Accepts ERC-20 tokens
     function deposit(uint256 amount, bytes32 userId) external nonReentrant {
         require(amount > 0, "Amount must be greater than 0");
-        require(deposits[userId].amount == 0, "User ID already has a deposit");
+        require(userId != bytes32(0), "Invalid user ID");
         
         // Transfer ERC-20 tokens from caller (FragmentManager) to contract
         require(token.transferFrom(msg.sender, address(this), amount), "Token transfer failed");
