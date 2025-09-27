@@ -52,18 +52,18 @@ contract PoolContract is Ownable, ReentrancyGuard {
     }
     
     // Withdraw function: Sends to stealth address after delay
-    function withdraw(address stealthAddress, address stealthAddr) external nonReentrant {
+    function withdraw(address stealthAddress) external nonReentrant {
         Deposit memory userDeposit = deposits[stealthAddress];
         require(userDeposit.amount > 0, "No deposit found for user ID");
         require(block.number >= userDeposit.depositBlock + WITHDRAW_DELAY_BLOCKS, "Withdraw delay not met");
-        require(stealthAddr != address(0), "Invalid stealth address");
+        require(stealthAddress != address(0), "Invalid stealth address");
         
         uint256 amount = userDeposit.amount;
         totalPooled -= amount;
         delete deposits[stealthAddress];
         
         // Transfer ERC-20 tokens to stealth address
-        require(token.transfer(stealthAddr, amount), "Token transfer failed");
+        require(token.transfer(stealthAddress, amount), "Token transfer failed");
         
         emit Withdrawn(stealthAddress, amount);
     }
