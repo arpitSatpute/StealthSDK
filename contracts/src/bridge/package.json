@@ -1,0 +1,20 @@
+{
+  "name": "stealth-sdk-kyc-bridge",
+  "version": "1.0.0",
+  "description": "LayerZero Cross-Chain KYC Bridge for StealthSDK",
+  "dependencies": {
+    "@layerzerolabs/solidity-examples": "^2.0.0",
+    "@selfxyz/contracts": "^1.0.0",
+    "@openzeppelin/contracts": "^4.9.0"
+  },
+  "devDependencies": {
+    "forge-std": "^1.7.0"
+  },
+  "scripts": {
+    "install-deps": "npm install",
+    "deploy-celo": "forge script script/DeployLayerZeroKYCBridge.s.sol:DeployLayerZeroKYCBridge --sig 'deployCelo()' --rpc-url https://alfajores-forno.celo-testnet.org --broadcast",
+    "deploy-polygon": "forge script script/DeployLayerZeroKYCBridge.s.sol:DeployLayerZeroKYCBridge --sig 'deployPolygon(address)' --rpc-url https://rpc-amoy.polygon.technology --broadcast",
+    "test": "forge test",
+    "build": "forge build"
+  }
+}

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
+import "./interfaces/IKYCContracts.sol";
+
 contract AadhaarKYCSimple {
     mapping(address => bool) public isKYCVerified;
     
@@ -23,6 +25,13 @@ contract AadhaarKYCSimple {
     function mockSelfProtocolCallback(address user) external {
         isKYCVerified[user] = true;
         emit KYCVerified(user);
+    }
+    
+    // Function to check KYC status using external KYCChecker contract
+    function checkKYCWithReceiver(address user, address kycChecker) 
+        external view returns (bool isVerified, string memory kycUrl, string memory qrCodeUrl) {
+        IKYCChecker checker = IKYCChecker(kycChecker);
+        return checker.checkKYC(user);
     }
     
     // For integration with other contracts

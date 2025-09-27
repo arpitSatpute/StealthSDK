@@ -1,2 +1,12 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+remappings = [
+    "forge-std/=lib/openzeppelin-contracts/lib/forge-std/src/",
+    "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    "solidity-examples/=lib/solidity-examples/contracts/"
+]
+
 [profile.ci.fuzz]
 runs = 10_000
