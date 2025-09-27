@@ -1,0 +1,9 @@
+[submodule "contracts/lib/LayerZero"]
+	path = contracts/lib/LayerZero
+	url = https://github.com/LayerZero-Labs/LayerZero
+[submodule "contracts/lib/solidity-examples"]
+	path = contracts/lib/solidity-examples
+	url = https://github.com/LayerZero-Labs/solidity-examples
+[submodule "contracts/lib/openzeppelin-contracts"]
+	path = contracts/lib/openzeppelin-contracts
+	url = https://github.com/OpenZeppelin/openzeppelin-contracts

@@ -1,8 +1,8 @@
 export type SiteConfig = typeof siteConfig;
 
 export const siteConfig = {
-  name: "Vite + HeroUI",
-  description: "Make beautiful websites regardless of your design experience.",
+  name: "StealthSDK",
+  description: "Cross-chain KYC verification using LayerZero and Self Protocol.",
   navItems: [
     {
       label: "Home",
@@ -13,8 +13,17 @@ export const siteConfig = {
       href: "/docs",
     },
     {
+<<<<<<< HEAD
       label: "Send",
       href: "/send",
+=======
+      label: "KYC Test",
+      href: "/kyc-test",
+    },
+    {
+      label: "Pricing",
+      href: "/pricing",
+>>>>>>> 5272877 (KYC part done)
     },
     {
       label: "Withdraw",
