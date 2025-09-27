@@ -10,8 +10,10 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "cors": "^2.8.5",
     "crypto-js": "^4.2.0",
     "ethers": "^6.15.0",
+    "express": "^5.1.0",
     "ipfs-http-client": "^60.0.1",
     "secrets.js-grempe": "^2.0.0"
   }
