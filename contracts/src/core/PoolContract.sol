@@ -19,14 +19,14 @@ contract PoolContract is Ownable, ReentrancyGuard {
     }
     
     // Mapping: hashed user ID => Deposit
-    mapping(bytes32 => Deposit) private deposits;
+    mapping(address => Deposit) private deposits;
     
     // Total pooled amount
     uint256 public totalPooled;
     
     // Events
-    event Deposited(bytes32 indexed userId, uint256 amount);
-    event Withdrawn(bytes32 indexed userId, uint256 amount, address stealthAddr);
+    event Deposited(address indexed stealthAddress, uint256 amount);
+    event Withdrawn(address indexed stealthAddress, uint256 amount);
     
     // Constructor: Set token address and owner
     constructor(address _token) Ownable(msg.sender) {
@@ -35,42 +35,42 @@ contract PoolContract is Ownable, ReentrancyGuard {
     }
     
     // Deposit function: Accepts ERC-20 tokens
-    function deposit(uint256 amount, bytes32 userId) external nonReentrant {
+    function deposit(uint256 amount, address stealthAddress) external nonReentrant {
         require(amount > 0, "Amount must be greater than 0");
-        require(userId != bytes32(0), "Invalid user ID");
+        require(stealthAddress != address(0), "Invalid user ID");
         
         // Transfer ERC-20 tokens from caller (FragmentManager) to contract
         require(token.transferFrom(msg.sender, address(this), amount), "Token transfer failed");
         
-        deposits[userId] = Deposit({
+        deposits[stealthAddress] = Deposit({
             amount: amount,
             depositBlock: block.number
         });
         
         totalPooled += amount;
-        emit Deposited(userId, amount);
+        emit Deposited(stealthAddress, amount);
     }
     
     // Withdraw function: Sends to stealth address after delay
-    function withdraw(bytes32 userId, address stealthAddr) external nonReentrant {
-        Deposit memory userDeposit = deposits[userId];
+    function withdraw(address stealthAddress, address stealthAddr) external nonReentrant {
+        Deposit memory userDeposit = deposits[stealthAddress];
         require(userDeposit.amount > 0, "No deposit found for user ID");
         require(block.number >= userDeposit.depositBlock + WITHDRAW_DELAY_BLOCKS, "Withdraw delay not met");
         require(stealthAddr != address(0), "Invalid stealth address");
         
         uint256 amount = userDeposit.amount;
         totalPooled -= amount;
-        delete deposits[userId];
+        delete deposits[stealthAddress];
         
         // Transfer ERC-20 tokens to stealth address
         require(token.transfer(stealthAddr, amount), "Token transfer failed");
         
-        emit Withdrawn(userId, amount, stealthAddr);
+        emit Withdrawn(stealthAddress, amount);
     }
     
     // Get deposit details for a user ID
-    function getDeposit(bytes32 userId) external view returns (uint256 amount, uint256 depositBlock) {
-        Deposit memory userDeposit = deposits[userId];
+    function getDeposit(address stealthAddress) external view returns (uint256 amount, uint256 depositBlock) {
+        Deposit memory userDeposit = deposits[stealthAddress];
         return (userDeposit.amount, userDeposit.depositBlock);
     }
     
