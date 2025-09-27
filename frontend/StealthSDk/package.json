@@ -10,11 +10,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
-<<<<<<< HEAD
-    "@heroicons/react": "^2.2.0",
-=======
     "@aztec/sdk": "^2.1.97",
->>>>>>> b429437 (added index and send with stealth addresses)
+    "@ethersproject/bytes": "^5.8.0",
+    "@ethersproject/keccak256": "^5.8.0",
+    "@heroicons/react": "^2.2.0",
     "@heroui/button": "2.2.26",
     "@heroui/code": "2.2.20",
     "@heroui/dropdown": "2.3.26",
@@ -34,12 +33,11 @@
     "@tailwindcss/postcss": "4.1.11",
     "@tailwindcss/vite": "4.1.11",
     "@tanstack/react-query": "^5.90.2",
+    "bn.js": "^5.2.2",
     "clsx": "2.1.1",
-<<<<<<< HEAD
     "connectkit": "^1.9.1",
-=======
+    "elliptic": "^6.6.1",
     "ethers": "^5.8.0",
->>>>>>> b429437 (added index and send with stealth addresses)
     "framer-motion": "11.18.2",
     "react": "18.3.1",
     "react-dom": "18.3.1",
@@ -54,6 +52,8 @@
     "@eslint/compat": "1.2.8",
     "@eslint/eslintrc": "3.3.1",
     "@eslint/js": "9.25.1",
+    "@types/bn.js": "^5.2.0",
+    "@types/elliptic": "^6.4.18",
     "@types/node": "20.5.7",
     "@types/react": "18.3.3",
     "@types/react-dom": "18.3.0",

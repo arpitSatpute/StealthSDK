@@ -13,17 +13,14 @@ export const siteConfig = {
       href: "/docs",
     },
     {
-<<<<<<< HEAD
       label: "Send",
       href: "/send",
-=======
       label: "KYC Test",
       href: "/kyc-test",
     },
     {
       label: "Pricing",
       href: "/pricing",
->>>>>>> 5272877 (KYC part done)
     },
     {
       label: "Withdraw",

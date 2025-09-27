@@ -1,6 +1,6 @@
 // src/pages/send-elliptic.tsx
 import { useState } from "react";
-import { computeAddress } from "ethers";
+import { computeAddress } from 'ethers/lib/utils';
 import { arrayify } from "@ethersproject/bytes";
 import { keccak256 } from "@ethersproject/keccak256";
 import elliptic from "elliptic";
