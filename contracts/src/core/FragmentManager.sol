@@ -13,10 +13,13 @@ contract FragmentManager is Ownable, ReentrancyGuard {
     address public immutable poolC;
     address public immutable poolD;
 
+    // Existing mappings
     mapping(address => mapping(uint256 => uint256)) public userPoolDeposits;
     mapping(address => uint256) public totalDeposits;
+    // New mapping to associate stealthAddress and txId with total deposit amount
+    mapping(address => mapping(bytes32 => uint256)) public depositsByTxId;
 
-    event FragmentsDeposited(address indexed stealthAddress, uint256[] amounts, uint256 level, bytes32[] txIds);
+    event FragmentsDeposited(address indexed stealthAddress, uint256[] amounts, uint256 level, bytes32 indexed txId);
 
     constructor(
         address _token,
@@ -41,16 +44,16 @@ contract FragmentManager is Ownable, ReentrancyGuard {
         uint256[] calldata amounts,
         address stealthAddress,
         uint256 level,
-        bytes32[] calldata txIds
+        bytes32 txId
     ) external nonReentrant {
         require(level >= 1 && level <= 4, "Level must be 1-4");
         require(amounts.length == level, "Fragment count must match level");
-        require(txIds.length == level, "Transaction ID count must match level");
+        require(txId != bytes32(0), "Invalid transaction ID");
+        require(depositsByTxId[stealthAddress][txId] == 0, "Transaction ID already used");
 
         uint256 total;
         for (uint256 i = 0; i < amounts.length; i++) {
             require(amounts[i] > 0, "Fragment amount must be positive");
-            require(txIds[i] != bytes32(0), "Invalid transaction ID");
             total += amounts[i];
         }
         require(total > 0, "Total amount must be positive");
@@ -58,6 +61,8 @@ contract FragmentManager is Ownable, ReentrancyGuard {
         require(token.transferFrom(msg.sender, address(this), total), "Token transfer failed");
 
         totalDeposits[stealthAddress] += total;
+        // Map the total deposit amount to txId
+        depositsByTxId[stealthAddress][txId] = total;
 
         for (uint256 i = 0; i < amounts.length; i++) {
             address pool;
@@ -67,11 +72,11 @@ contract FragmentManager is Ownable, ReentrancyGuard {
             else pool = poolD;
 
             require(token.approve(pool, amounts[i]), "Pool approval failed");
-            PoolContract(pool).deposit(amounts[i], stealthAddress, txIds[i]);
+            PoolContract(pool).deposit(amounts[i], stealthAddress, txId);
             userPoolDeposits[stealthAddress][i] = amounts[i];
         }
 
-        emit FragmentsDeposited(stealthAddress, amounts, level, txIds);
+        emit FragmentsDeposited(stealthAddress, amounts, level, txId);
     }
 
     function getUserDeposits(address stealthAddress) external view returns (
@@ -101,6 +106,10 @@ contract FragmentManager is Ownable, ReentrancyGuard {
         }
 
         return (pools, amounts);
+    }
+
+    function getDepositByTxId(address stealthAddress, bytes32 txId) external view returns (uint256 totalAmount) {
+        return depositsByTxId[stealthAddress][txId];
     }
 
     function getPools() external view returns (address[4] memory) {

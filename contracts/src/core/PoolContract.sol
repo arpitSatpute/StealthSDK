@@ -15,16 +15,10 @@ contract PoolContract is Ownable, ReentrancyGuard {
     }
 
     mapping(address => Deposit) private deposits;
-    mapping(bytes32 => Withdrawal) public withdrawals;
     uint256 public totalPooled;
 
-    struct Withdrawal {
-        address stealthAddress;
-        uint256 amount;
-    }
-
     event Deposited(address indexed stealthAddress, uint256 amount, bytes32 indexed txId);
-    event Withdrawn(address indexed stealthAddress, uint256 amount, bytes32 indexed txId);
+    event Withdrawn(address indexed stealthAddress, uint256 amount);
 
     constructor(address _token) Ownable(msg.sender) {
         require(_token != address(0), "Invalid token address");
@@ -47,36 +41,24 @@ contract PoolContract is Ownable, ReentrancyGuard {
         emit Deposited(stealthAddress, amount, txId);
     }
 
-    function withdraw(address stealthAddress, bytes32 txId) external nonReentrant {
+    function withdraw(address stealthAddress) external nonReentrant {
         Deposit memory userDeposit = deposits[stealthAddress];
         require(userDeposit.amount > 0, "No deposit found for stealth address");
         require(block.number >= userDeposit.depositBlock + WITHDRAW_DELAY_BLOCKS, "Withdraw delay not met");
         require(stealthAddress != address(0), "Invalid stealth address");
-        require(txId != bytes32(0), "Invalid transaction ID");
-        require(withdrawals[txId].stealthAddress == address(0), "Transaction ID already used");
 
         uint256 amount = userDeposit.amount;
         totalPooled -= amount;
         delete deposits[stealthAddress];
 
-        withdrawals[txId] = Withdrawal({
-            stealthAddress: stealthAddress,
-            amount: amount
-        });
-
         require(token.transfer(stealthAddress, amount), "Token transfer failed");
 
-        emit Withdrawn(stealthAddress, amount, txId);
+        emit Withdrawn(stealthAddress, amount);
     }
 
     function getDeposit(address stealthAddress) external view returns (uint256 amount, uint256 depositBlock) {
         Deposit memory userDeposit = deposits[stealthAddress];
         return (userDeposit.amount, userDeposit.depositBlock);
-    }
-
-    function getWithdrawal(bytes32 txId) external view returns (address stealthAddress, uint256 amount) {
-        Withdrawal memory withdrawal = withdrawals[txId];
-        return (withdrawal.stealthAddress, withdrawal.amount);
     }
 
     function emergencyWithdraw(address to) external onlyOwner {
