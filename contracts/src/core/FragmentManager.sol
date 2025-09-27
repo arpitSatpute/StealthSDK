@@ -8,26 +8,16 @@ import "./PoolContract.sol";
 
 contract FragmentManager is Ownable, ReentrancyGuard {
     IERC20 public immutable token;
-    // Named pools: PoolA, PoolB, PoolC, PoolD
     address public immutable poolA;
     address public immutable poolB;
     address public immutable poolC;
     address public immutable poolD;
 
-    // Mapping: stealthAddress => poolIndex => amount
     mapping(address => mapping(uint256 => uint256)) public userPoolDeposits;
-
-    // Mapping to track total deposits per user
     mapping(address => uint256) public totalDeposits;
 
-    // Events
-    event FragmentsDeposited(
-        address indexed stealthAddress,
-        uint256[] amounts,
-        uint256 level
-    );
+    event FragmentsDeposited(address indexed stealthAddress, uint256[] amounts, uint256 level, bytes32[] txIds);
 
-    // Constructor: Set token and pool addresses
     constructor(
         address _token,
         address _poolA,
@@ -47,32 +37,28 @@ contract FragmentManager is Ownable, ReentrancyGuard {
         poolD = _poolD;
     }
 
-    // Deposit fragments: Called by frontend with AI-generated amounts
     function depositFragments(
         uint256[] calldata amounts,
         address stealthAddress,
-        uint256 level
+        uint256 level,
+        bytes32[] calldata txIds
     ) external nonReentrant {
         require(level >= 1 && level <= 4, "Level must be 1-4");
         require(amounts.length == level, "Fragment count must match level");
+        require(txIds.length == level, "Transaction ID count must match level");
 
         uint256 total;
         for (uint256 i = 0; i < amounts.length; i++) {
             require(amounts[i] > 0, "Fragment amount must be positive");
+            require(txIds[i] != bytes32(0), "Invalid transaction ID");
             total += amounts[i];
         }
         require(total > 0, "Total amount must be positive");
 
-        // Transfer total from sender to this contract
-        require(
-            token.transferFrom(msg.sender, address(this), total),
-            "Token transfer failed"
-        );
+        require(token.transferFrom(msg.sender, address(this), total), "Token transfer failed");
 
-        // Update tracking
         totalDeposits[stealthAddress] += total;
 
-        // Call deposit on each pool based on level and track deposits
         for (uint256 i = 0; i < amounts.length; i++) {
             address pool;
             if (i == 0) pool = poolA;
@@ -81,31 +67,28 @@ contract FragmentManager is Ownable, ReentrancyGuard {
             else pool = poolD;
 
             require(token.approve(pool, amounts[i]), "Pool approval failed");
-            PoolContract(pool).deposit(amounts[i], stealthAddress);
+            PoolContract(pool).deposit(amounts[i], stealthAddress, txIds[i]);
             userPoolDeposits[stealthAddress][i] = amounts[i];
         }
 
-        emit FragmentsDeposited(stealthAddress, amounts, level);
+        emit FragmentsDeposited(stealthAddress, amounts, level, txIds);
     }
 
-    // View function: Get pool addresses and deposit amounts for a user
-    function getUserDeposits(
-        address stealthAddress
-    ) external view returns (address[] memory pools, uint256[] memory amounts) {
+    function getUserDeposits(address stealthAddress) external view returns (
+        address[] memory pools,
+        uint256[] memory amounts
+    ) {
         uint256 level = 0;
-        // Determine the number of pools with deposits
         for (uint256 i = 0; i < 4; i++) {
             if (userPoolDeposits[stealthAddress][i] > 0) {
                 level++;
             }
         }
 
-        // Initialize arrays
         pools = new address[](level);
         amounts = new uint256[](level);
         uint256 index = 0;
 
-        // Populate arrays with non-zero deposits
         for (uint256 i = 0; i < 4; i++) {
             if (userPoolDeposits[stealthAddress][i] > 0) {
                 if (i == 0) pools[index] = poolA;
@@ -120,7 +103,6 @@ contract FragmentManager is Ownable, ReentrancyGuard {
         return (pools, amounts);
     }
 
-    // View function: Get pool addresses
     function getPools() external view returns (address[4] memory) {
         return [poolA, poolB, poolC, poolD];
     }

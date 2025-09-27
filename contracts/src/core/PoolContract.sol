@@ -6,75 +6,79 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 contract PoolContract is Ownable, ReentrancyGuard {
-    // ERC-20 token address
     IERC20 public immutable token;
-    
-    // Minimum blocks before withdrawal (mixing delay)
     uint256 public constant WITHDRAW_DELAY_BLOCKS = 5;
-    
-    // Struct to store deposit info
+
     struct Deposit {
         uint256 amount;
         uint256 depositBlock;
     }
-    
-    // Mapping: hashed user ID => Deposit
+
     mapping(address => Deposit) private deposits;
-    
-    // Total pooled amount
+    mapping(bytes32 => Withdrawal) public withdrawals;
     uint256 public totalPooled;
-    
-    // Events
-    event Deposited(address indexed stealthAddress, uint256 amount);
-    event Withdrawn(address indexed stealthAddress, uint256 amount);
-    
-    // Constructor: Set token address and owner
+
+    struct Withdrawal {
+        address stealthAddress;
+        uint256 amount;
+    }
+
+    event Deposited(address indexed stealthAddress, uint256 amount, bytes32 indexed txId);
+    event Withdrawn(address indexed stealthAddress, uint256 amount, bytes32 indexed txId);
+
     constructor(address _token) Ownable(msg.sender) {
         require(_token != address(0), "Invalid token address");
         token = IERC20(_token);
     }
-    
-    // Deposit function: Accepts ERC-20 tokens
-    function deposit(uint256 amount, address stealthAddress) external nonReentrant {
+
+    function deposit(uint256 amount, address stealthAddress, bytes32 txId) external nonReentrant {
         require(amount > 0, "Amount must be greater than 0");
-        require(stealthAddress != address(0), "Invalid user ID");
-        
-        // Transfer ERC-20 tokens from caller (FragmentManager) to contract
+        require(stealthAddress != address(0), "Invalid stealth address");
+        require(txId != bytes32(0), "Invalid transaction ID");
+
         require(token.transferFrom(msg.sender, address(this), amount), "Token transfer failed");
-        
+
         deposits[stealthAddress] = Deposit({
             amount: amount,
             depositBlock: block.number
         });
-        
+
         totalPooled += amount;
-        emit Deposited(stealthAddress, amount);
+        emit Deposited(stealthAddress, amount, txId);
     }
-    
-    // Withdraw function: Sends to stealth address after delay
-    function withdraw(address stealthAddress) external nonReentrant {
+
+    function withdraw(address stealthAddress, bytes32 txId) external nonReentrant {
         Deposit memory userDeposit = deposits[stealthAddress];
-        require(userDeposit.amount > 0, "No deposit found for user ID");
+        require(userDeposit.amount > 0, "No deposit found for stealth address");
         require(block.number >= userDeposit.depositBlock + WITHDRAW_DELAY_BLOCKS, "Withdraw delay not met");
         require(stealthAddress != address(0), "Invalid stealth address");
-        
+        require(txId != bytes32(0), "Invalid transaction ID");
+        require(withdrawals[txId].stealthAddress == address(0), "Transaction ID already used");
+
         uint256 amount = userDeposit.amount;
         totalPooled -= amount;
         delete deposits[stealthAddress];
-        
-        // Transfer ERC-20 tokens to stealth address
+
+        withdrawals[txId] = Withdrawal({
+            stealthAddress: stealthAddress,
+            amount: amount
+        });
+
         require(token.transfer(stealthAddress, amount), "Token transfer failed");
-        
-        emit Withdrawn(stealthAddress, amount);
+
+        emit Withdrawn(stealthAddress, amount, txId);
     }
-    
-    // Get deposit details for a user ID
+
     function getDeposit(address stealthAddress) external view returns (uint256 amount, uint256 depositBlock) {
         Deposit memory userDeposit = deposits[stealthAddress];
         return (userDeposit.amount, userDeposit.depositBlock);
     }
-    
-    // Emergency stop: Owner can withdraw all tokens (for hackathon safety)
+
+    function getWithdrawal(bytes32 txId) external view returns (address stealthAddress, uint256 amount) {
+        Withdrawal memory withdrawal = withdrawals[txId];
+        return (withdrawal.stealthAddress, withdrawal.amount);
+    }
+
     function emergencyWithdraw(address to) external onlyOwner {
         uint256 balance = token.balanceOf(address(this));
         require(balance > 0, "No tokens to withdraw");

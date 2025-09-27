@@ -43,12 +43,7 @@ function generateTransactionId(sender, receiver, amount) {
   return { txId, txIdBytes32, keyShares };
 }
 
-/**
- * Decrypt a transaction ID using any 2 of the 3 key shares.
- * @param {string} txId - The encrypted transaction ID.
- * @param {string[]} keyShares - At least 2 key shares.
- * @returns {Object} - { sender: string, receiver: string, amount: string }
- */
+
 function decryptTransactionId(txId, keyShares) {
   if (!txId || typeof txId !== 'string' || txId.length < 32) {
     throw new Error('Invalid transaction ID');
