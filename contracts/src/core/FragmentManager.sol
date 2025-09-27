@@ -14,12 +14,12 @@ contract FragmentManager is Ownable, ReentrancyGuard {
     address public immutable poolC;
     address public immutable poolD;
     
-    // Mapping to track total deposited per userId
-    mapping(bytes32 => uint256) public totalDeposited;
+    // Mapping to track total deposits
+    mapping(address => uint256) public totalDeposits;
     
     // Events
-    event FragmentsDeposited(bytes32 indexed userId, uint256[] amounts, uint256 level);
-    event FragmentsWithdrawn(bytes32 indexed userId, uint256[] amounts, address stealthAddr, uint256 level);
+    event FragmentsDeposited(address indexed stealthAddress, uint256[] amounts, uint256 level);
+    event FragmentsWithdrawn(address indexed stealthAddress, uint256[] amounts, uint256 level);
     
     // Constructor: Set token and pool addresses
     constructor(
@@ -44,7 +44,7 @@ contract FragmentManager is Ownable, ReentrancyGuard {
     // Deposit fragments: Called by frontend with AI-generated amounts
     function depositFragments(
         uint256[] calldata amounts,
-        bytes32 userId,
+        address stealthAddress,
         uint256 level
     ) external nonReentrant {
         require(level >= 1 && level <= 4, "Level must be 1-4");
@@ -61,7 +61,7 @@ contract FragmentManager is Ownable, ReentrancyGuard {
         require(token.transferFrom(msg.sender, address(this), total), "Token transfer failed");
         
         // Update tracking
-        totalDeposited[userId] += total;
+        totalDeposited[stealthAddress] += total;
         
         // Call deposit on each pool based on level
         for (uint256 i = 0; i < amounts.length; i++) {
@@ -72,16 +72,16 @@ contract FragmentManager is Ownable, ReentrancyGuard {
             else pool = poolD;
             
             require(token.approve(pool, amounts[i]), "Pool approval failed");
-            PoolContract(pool).deposit(amounts[i], userId);
+            PoolContract(pool).deposit(amounts[i], stealthAddress);
         }
         
-        emit FragmentsDeposited(userId, amounts, level);
+        emit FragmentsDeposited(stealthAddress, amounts, level);
     }
     
     // Withdraw fragments: Called by frontend with AI-generated amounts
     function withdrawFragments(
         uint256[] calldata amounts,
-        bytes32 userId,
+        address stealthAddress,
         address stealthAddr,
         uint256 level
     ) external nonReentrant {
@@ -94,10 +94,10 @@ contract FragmentManager is Ownable, ReentrancyGuard {
             require(amounts[i] > 0, "Fragment amount must be positive");
             total += amounts[i];
         }
-        require(total == totalDeposited[userId], "Total must match deposited amount");
+        require(total == totalDeposited[stealthAddress], "Total must match deposited amount");
         
         // Reset tracking
-        totalDeposited[userId] = 0;
+        totalDeposited[stealthAddress] = 0;
         
         // Call withdraw on each pool based on level
         for (uint256 i = 0; i < amounts.length; i++) {
@@ -106,22 +106,15 @@ contract FragmentManager is Ownable, ReentrancyGuard {
             else if (i == 1) pool = poolB;
             else if (i == 2) pool = poolC;
             else pool = poolD;
-            
-            PoolContract(pool).withdraw(userId, stealthAddr);
+            uint256 amount = amounts[stealthAddress];
+            PoolContract(pool).withdraw(stealthAddress, amount);
         }
         
-        emit FragmentsWithdrawn(userId, amounts, stealthAddr, level);
+        emit FragmentsWithdrawn(stealthAddress, amounts, level);
     }
     
     // View function: Get pool addresses
     function getPools() external view returns (address[4] memory) {
         return [poolA, poolB, poolC, poolD];
-    }
-    
-    // Emergency withdraw: Owner recovers tokens
-    function emergencyWithdraw(address to) external onlyOwner {
-        uint256 balance = token.balanceOf(address(this));
-        require(balance > 0, "No tokens to withdraw");
-        require(token.transfer(to, balance), "Emergency transfer failed");
     }
 }
