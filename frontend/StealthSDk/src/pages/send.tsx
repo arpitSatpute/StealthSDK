@@ -1,9 +1,19 @@
 import { useState } from "react";
+import { useAccount, useConnect, useDisconnect } from "wagmi";
+import { sendTransaction, waitForTransactionReceipt, writeContract } from "@wagmi/core";
+import { parseEther } from "viem";
+import { config } from "@/config/WagmiConfig";
 import { computeAddress } from "ethers/lib/utils";
 import { arrayify } from "@ethersproject/bytes";
 import { keccak256 } from "@ethersproject/keccak256";
 import elliptic from "elliptic";
 import BN from "bn.js";
+// Import the ABI JSON file for your FragmentManager contract
+import fragmentManagerAbi from "@/abi/fragmentManager.json";
+const FRAGMENT_MANAGER: `0x${string}` = (import.meta.env.VITE_FRAGMENT_MANAGER_ADDRESS.startsWith("0x")
+  ? import.meta.env.VITE_FRAGMENT_MANAGER_ADDRESS
+  : `0x${import.meta.env.VITE_FRAGMENT_MANAGER_ADDRESS}`) as `0x${string}`;
+
 import {
   PaperAirplaneIcon,
   ShieldCheckIcon,
@@ -13,6 +23,7 @@ import {
   WalletIcon,
 } from "@heroicons/react/24/outline";
 import DefaultLayout from "@/layouts/default";
+import { ethers } from "ethers";
 
 /* ------------------- ELLIPTIC STEALTH LOGIC ------------------- */
 const EC = elliptic.ec;
@@ -21,11 +32,19 @@ const CURVE_N = new BN(
   "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141",
   16
 );
-function strip0x(s: string) { return s.startsWith("0x") ? s.slice(2) : s; }
-function norm0x(s: string) { return s.startsWith("0x") ? s.toLowerCase() : "0x" + s.toLowerCase(); }
+function strip0x(s: string) {
+  return s.startsWith("0x") ? s.slice(2) : s;
+}
+function norm0x(s: string) {
+  return s.startsWith("0x") ? s.toLowerCase() : "0x" + s.toLowerCase();
+}
 function concatBytes(parts: Uint8Array[]) {
   const out = new Uint8Array(parts.reduce((s, p) => s + p.length, 0));
-  let off = 0; for (const p of parts) { out.set(p, off); off += p.length; }
+  let off = 0;
+  for (const p of parts) {
+    out.set(p, off);
+    off += p.length;
+  }
   return out;
 }
 function deterministicPrivFromAddress(address: string) {
@@ -35,8 +54,11 @@ function deterministicPrivFromAddress(address: string) {
   return "0x" + bi.toString(16).padStart(64, "0");
 }
 function parsePubkeyHex(pubHex: string) {
-  try { return ec.keyFromPublic(strip0x(pubHex), "hex").getPublic(); }
-  catch { throw new Error("Invalid public key hex"); }
+  try {
+    return ec.keyFromPublic(strip0x(pubHex), "hex").getPublic();
+  } catch {
+    throw new Error("Invalid public key hex");
+  }
 }
 function deriveSpendViewFromMainPub(mainPubHex: string) {
   const mainPub = parsePubkeyHex(mainPubHex);
@@ -97,12 +119,14 @@ function generateStealthFromMainKey(mainPubOrAddress: string, useDeterministicFr
 /* ------------------- REACT UI ------------------- */
 export default function SendEllipticUI() {
   const [recipient, setRecipient] = useState("");
-  const [amount, setAmount] = useState("");
-  const [isConnected, setIsConnected] = useState(false);
+  const [amount, setAmount] = useState([])
   const [stealthResult, setStealthResult] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const handleConnect = () => setIsConnected(!isConnected);
+  const { address, isConnected } = useAccount();
+  const { connect, connectors, isPending } = useConnect();
+  const { disconnect } = useDisconnect();
+
   const copyToClipboard = (text: string) => navigator.clipboard.writeText(text);
 
   const handleGenerateStealth = () => {
@@ -111,13 +135,29 @@ export default function SendEllipticUI() {
       if (!recipient) throw new Error("Enter recipient pubkey or address");
       const result = generateStealthFromMainKey(recipient, true);
       setStealthResult(result);
-    } catch (e: any) { setError(e.message ?? String(e)); }
+    } catch (e: any) {
+      setError(e.message ?? String(e));
+    }
   };
 
-  const handleSendPayment = () => {
+  const handleSendPayment = async () => {
     if (!stealthResult || !amount) return alert("Generate stealth address and enter amount first!");
-    console.log("Sending payment:", { to: stealthResult.stealthEthAddress, amount });
-    alert(`Payment of ${amount} ETH to ${stealthResult.stealthEthAddress} triggered (demo)`);
+    try {
+      const fragmentIds = [1, 5, 4, 8];
+      const salt = ethers.utils.keccak256(ethers.utils.randomBytes(32)); // ✅ bytes32
+      const hash = await writeContract(config, {
+        address: FRAGMENT_MANAGER,
+        abi: fragmentManagerAbi,
+        functionName: "depositFragments",
+        args: [fragmentIds, '0xd903714f32c0Ee50bf4a426a9b1cA9B90B0e5c80', 4, salt],
+        account: address,
+      });
+      await waitForTransactionReceipt(config, { hash });
+      alert(`✅ Sent ${amount} ETH to ${stealthResult.stealthEthAddress}`);
+    } catch (err) {
+      console.error(err);
+      alert("Transaction failed: " + (err as any).message);
+    }
   };
 
   return (
@@ -134,14 +174,25 @@ export default function SendEllipticUI() {
                 <p className="text-xs text-gray-400">Privacy Protocol</p>
               </div>
             </div>
-            <button
-              onClick={handleConnect}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-colors ${isConnected ? "bg-gray-800 text-gray-300" : "bg-blue-600 hover:bg-blue-700 text-white"
-                }`}
-            >
-              <WalletIcon className="w-4 h-4" />
-              {isConnected ? "0x...7a9b" : "Connect Wallet"}
-            </button>
+
+            {isConnected ? (
+              <button
+                onClick={() => disconnect()}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl font-medium bg-gray-800 text-gray-300"
+              >
+                <WalletIcon className="w-4 h-4" />
+                {address?.slice(0, 6)}...{address?.slice(-4)}
+              </button>
+            ) : (
+              <button
+                onClick={() => connect({ connector: connectors[0] })}
+                disabled={isPending}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl font-medium bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                <WalletIcon className="w-4 h-4" />
+                {isPending ? "Connecting..." : "Connect Wallet"}
+              </button>
+            )}
           </div>
 
           <div className="max-w-md mx-auto space-y-6">
@@ -159,8 +210,9 @@ export default function SendEllipticUI() {
                 placeholder="Recipient pubkey or address"
                 value={recipient}
                 onChange={(e) => setRecipient(e.target.value)}
-                className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+                className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
               />
+
               <button
                 onClick={handleGenerateStealth}
                 className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold"
@@ -174,14 +226,14 @@ export default function SendEllipticUI() {
                 <div className="bg-gray-800/50 border border-gray-700 p-3 rounded-xl text-gray-300 space-y-1">
                   <div>
                     <strong>Stealth ETH Address:</strong> {stealthResult.stealthEthAddress}
-                    <button onClick={() => copyToClipboard(stealthResult.stealthEthAddress)} className="ml-2 text-gray-400 hover:text-white">
+                    <button
+                      onClick={() => copyToClipboard(stealthResult.stealthEthAddress)}
+                      className="ml-2 text-gray-400 hover:text-white"
+                    >
                       <DocumentDuplicateIcon className="w-4 h-4 inline" />
                     </button>
                   </div>
                   <div><strong>Ephemeral Pub:</strong> {stealthResult.ephemeralPubHex}</div>
-                  {/* <div><strong>Ephemeral Priv:</strong> {stealthResult.ephemeralPrivHex}</div>
-                  <div><strong>Derived Spend Pub:</strong> {stealthResult.spendPubCompressedHex}</div>
-                  <div><strong>Derived View Pub:</strong> {stealthResult.viewPubCompressedHex}</div> */}
                 </div>
               )}
 
@@ -190,21 +242,23 @@ export default function SendEllipticUI() {
                 placeholder="Amount (ETH)"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+                className="w-full px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:border-blue-500 focus:outline-none"
               />
 
               <div className="flex gap-3 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
                 <ExclamationTriangleIcon className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
                 <div className="text-sm">
                   <p className="text-amber-400 font-medium mb-1">Privacy Notice</p>
-                  <p className="text-gray-300">This transaction uses stealth addresses for complete anonymity.</p>
+                  <p className="text-gray-300">
+                    This transaction uses stealth addresses for complete anonymity.
+                  </p>
                 </div>
               </div>
 
               <button
                 onClick={handleSendPayment}
                 disabled={!isConnected || !stealthResult || !amount}
-                className="w-full flex items-center justify-center gap-2 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 text-white font-semibold rounded-xl transition-colors"
+                className="w-full flex items-center justify-center gap-2 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:text-gray-500 text-white font-semibold rounded-xl"
               >
                 Send Anonymous Payment
                 <ArrowRightIcon className="w-5 h-5" />
