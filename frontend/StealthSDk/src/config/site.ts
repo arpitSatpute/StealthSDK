@@ -15,6 +15,8 @@ export const siteConfig = {
     {
       label: "Send",
       href: "/send",
+    },
+    {
       label: "KYC Test",
       href: "/kyc-test",
     },

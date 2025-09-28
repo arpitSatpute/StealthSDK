@@ -1,8 +1,8 @@
 import React from 'react';
-import KYCTestWrapper from '@/components/KYCTestWrapper';
+import KYC from '../components/KYC.js';
 
 const KYCTestPage: React.FC = () => {
-  return <KYCTestWrapper />;
+  return <KYC />;
 };
 
 export default KYCTestPage;
